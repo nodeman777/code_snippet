@@ -1,0 +1,294 @@
+<!DOCTYPE>
+<html lang="zh">
+
+<head>
+    <meta charset="utf-8">
+    <style>
+        body {
+            text-align: center;
+            /*width: 990px;*/
+            font-family: '微软雅黑'
+        }
+        
+        .container {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+        .row {
+            width: auto;
+        }
+        .log {
+            border:solid 1px;
+            padding: 4px;
+            text-align: left;
+        }
+        button {
+        	margin: 4px;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <div>
+            <div class="row">
+                <h1>新增或更新</h1>
+                <input type="file" id="fileAddOrUpdate" name="" value="">
+                <button onclick="clearLog(document.querySelector('#updateLog'))">清除日志</button>
+                <button id="addOrUpdate">执行</button>
+                <hr>
+                <div id="updateLog" class="log"></div>
+            </div>
+            <hr>
+            <div class="row">
+                <h1>删除</h1>
+                <input type="file" id="fileDelete" name="" value="">
+                <button onclick="clearLog(document.querySelector('#deleteLog'))">清除日志</button>
+                <button id="delete">执行</button>
+                <hr>
+                <div id="deleteLog" class="log"></div>
+            </div>
+            <hr>
+            <div class="row">
+            	<input type="text" id="issue" /><button id="search">查询</button>
+            	<hr>
+            	<div id="seacrhLog" class="log"></div>
+            </div>
+        </div>
+
+    </div>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.8.0/xlsx.core.min.js"></script>
+    <!--<script src="//cdnjs.cloudflare.com/ajax/libs/bluebird/3.3.5/bluebird.core.min.js"></script>-->
+    <script>
+        (function(){
+            var api = 'http://121.41.92.56:8080/';
+            var updateLog = document.querySelector('#updateLog');
+            var deleteLog = document.querySelector('#deleteLog');
+            document.querySelector('#search').addEventListener('click',function(){
+            	var node = document.querySelector('#seacrhLog');
+            	var issue = document.querySelector('#issue').value;
+            	if(!isNullOrEmpty(issue)){
+            		get(issue).then(function(data){
+            			if(!isNullOrEmpty(data.aid)){
+            				node.innerHTML=`<p>title:${data.title}<br />order:${data.seat}<br />x1:${data.x1}<br />y1:${data.y1}<br />x2:${data.x2}<br />y2:${data.y2}<br />zoom:${data.zoom}</p>`;
+            			}        
+            		})
+            	}
+            })
+            document.querySelector('#addOrUpdate').addEventListener('click',function(e){
+                e.target.disabled = true;
+                e.target.innerHTML = "执行中...";
+                log(updateLog,'开始读取数据...')
+                var files = document.querySelector('#fileAddOrUpdate').files
+                if(files.length > 0){
+                    var file = files[0];
+                    var reader = new FileReader();
+                    reader.onload = function(event){
+                        var data = event.target.result;
+                        var workbook = XLSX.read(data,{type:'binary'});
+                        var sheet = workbook.Sheets[workbook.SheetNames[0]];
+                        // for(row in sheet){
+                        //     if(row[0] === '!' ) continue;
+                        //     console.log(JSON.stringify(sheet[row].v));
+                        // }
+                        var items = XLSX.utils.sheet_to_json(sheet);
+                        log(updateLog,`读取数据成功，共${items.length}条`)
+                        log(updateLog,'开始上传数据...')                        
+                        var scount = 0;
+                        var fcount = 0;
+                        Promise.all(items.map(function(item){
+                               return Promise.all([get(item.issue),Polygon(item.x1,item.y1,item.x2,item.y2,item.zoom)])
+                                    .then(function(array){
+                                        item.polygon = array[1];
+                                        if(isNullOrEmpty(array[0].aid)){
+                                            return true;                               
+                                        }else{
+                                            item.aid = array[0].aid;
+                                            return false;
+                                        }
+                                    }).catch(function(error){
+                                        log(updateLog,`issue:${item.issue} <br />error:${error}`);
+                                        fcount++;
+                                    }).then(function(result){
+                                        return result?add(item):update(item)
+                                    },function(error){
+                                        log(updateLog,`issue:${item.issue} <br />error:${error}`);
+                                        fcount++;
+                                    }).then(function(result){
+                                        result?scount++:fcount++;
+                                    }).catch(function(error){
+                                        log(updateLog,`issue:${item.issue} <br />error:${error}`);
+                                        fcount++;
+                                    })
+                       })).then(function(){
+                           log(updateLog,`上传结束,成功:${scount},失败:${fcount}`);
+                           e.target.disabled = false;
+                           e.target.innerHTML = "执行"
+                       })
+                    }
+                    reader.readAsBinaryString(file)
+                }   
+            },false);
+            document.querySelector('#delete').addEventListener('click',function(e){
+                e.target.disabled = true;
+                e.target.innerHTML = "执行中...";
+                log(updateLog,'开始读取数据...')
+                var files = document.querySelector('#fileDelete').files
+                if(files.length>0){
+                    var file = files[0];
+                    var reader = new FileReader();
+                    reader.onload = function(event){
+                        var data = event.target.result;
+                        var workbook = XLSX.read(data,{type:'binary'});
+                        var sheet = workbook.Sheets[workbook.SheetNames[0]];
+                        var items = XLSX.utils.sheet_to_json(sheet);
+                        log(deleteLog,`读取数据成功，共${items.length}条`)
+                        log(deleteLog,'开始上传数据...')                        
+                        var scount = 0;
+                        var fcount = 0;
+                        Promise.all(items.map(function(item){
+                            return get(item.issue).then(function(data){
+                                        if(isNullOrEmpty(data.aid)){
+                                            return Promise.reject(`没有${item.issue}的记录`)
+                                        }else{
+                                            return del(data.aid);
+                                        }
+                                    }).catch(function(error){
+                                        log(deleteLog,`function get issue:${item.issue} <br />error:${error}`);
+                                        fcount++;
+                                    }).then(function(result){
+                                        result?scount++:fcount++;
+                                    }).catch(function(error){
+                                        log(deleteLog,`issue:${item.issue} <br />error:${error}`);
+                                        fcount++;
+                                    })
+                        })).then(function(){
+                            log(deleteLog,`删除结束,成功:${scount},失败:${fcount}`);
+                            e.target.disabled = false;
+                            e.target.innerHTML = "执行"
+                        })
+                    }
+                    reader.readAsBinaryString(file)
+                }
+            },false);
+            function get(issue){
+                return fetch(`${api}area/get?issue=${issue}`)
+                        .then(function(response){
+                            if(response.ok){
+                                return response.json()
+                            }else{
+                                return Promise.reject(response.statusText)
+                            }
+                        }).then(function(data){
+                            if(data.code === 0){
+                                return data.get;
+                            }else{
+                                return Promise.reject(data.msg);
+                            }
+                        })
+            }
+            function del(id){
+                return fetch(`${api}area/del`,{
+                    method: 'POST',
+                    headers: {
+                        'Accept': 'text/plain',
+                        'Content-Type': 'application/x-www-form-urlencoded'
+                    },
+                    body:`aid=${id}`
+                }).then(function(response){
+                    return response.ok?response.json():Promise.reject(response.statusText)
+                }).then(function(data){
+                    if(data.code === 0){
+                        return true;
+                    }else{
+                        return Promise.reject(data.msg)
+                    }
+                })
+            }
+            function update(item){
+                return fetch(`${api}area/put`,{
+                    method: 'POST',
+                    headers: {
+                        'Accept': 'text/plain',
+                        'Content-Type': 'application/x-www-form-urlencoded'
+                    },
+                    body: `seat=${item.order}&zoom=${item.zoom}&aid=${item.aid}&title=${item.name}&x1=${item.x1}&x2=${item.x2}&y1=${item.y1}&y2=${item.y2}&polygon=${item.polygon}`
+                }).then(function(response){
+                    return response.ok?response.json():Promise.reject(response.statusText)  
+                }).then(function(data){
+                    if(data.code === 0){
+                        return true
+                    }else{
+                        return Promise.reject(data.msg)
+                    }
+                })
+            }
+            function add(item){
+                return fetch(`${api}area/add`,{
+                    method: 'POST',
+                    headers: {
+                        'Accept': 'text/plain',
+                        'Content-Type': 'application/x-www-form-urlencoded'
+                    },
+                    body:`seat=${item.order}&zoom=${item.zoom}&title=${item.name}&x1=${item.x1}&x2=${item.x2}&y1=${item.y1}&y2=${item.y2}&polygon=${item.polygon}&mid=1&state=2&issue=${item.issue}`
+                }).then(function(response){
+                    return response.ok?response.json():Promise.reject(response.statusText)  
+                }).then(function(data){
+                    if(data.code === 0){
+                        return true
+                    }else{
+                        return Promise.reject(data.msg)
+                    }
+                },function(err){
+                    return Promise.reject(err.message);
+                })
+            }
+            function pixel2LngAndLat(x,y,zoom){
+                if(isNullOrEmpty(x) || isNullOrEmpty(x) || isNullOrEmpty(zoom)){
+                    return Promise.reject('参数不能为空!');
+                }
+                return fetch(`http://121.41.92.56:8001/PixelLngLat?pixelX=${x}&pixelY=${y}&zoom=${zoom}`)
+                .then(function(response){
+                    return response.ok? response.json()
+                                      : Promise.reject(response.statusText)
+                }).then(function (data){
+                    if(data.code === 0){
+                        return {
+                            lng:data.lng,
+                            lat:data.lat
+                        }
+                    }else{
+                        return Promise.reject(data.msg)
+                    }
+                })
+            }
+            function isNullOrEmpty(value){
+                return value === '' || value === null || value === undefined
+            }
+            function Polygon(x1, y1, x2, y2, zoom) {
+                var xy1 = pixel2LngAndLat(x1,y1,zoom);
+                var xy2 = pixel2LngAndLat(x2,y2,zoom);
+                return Promise.all([xy1,xy2]).then(function(array){
+                        var p0 = array[0].lat;
+                        var p1 = array[0].lng;
+                        var p2 = array[1].lat;
+                        var p3 = array[1].lng;
+                        return "POLYGON((" + p0 + ' ' + p1 + ',' + p0 + ' ' + p3 + ',' + p2 + ' ' + p3 + ',' + p2 + ' ' + p1 + ',' + p0 + ' ' + p1 + "))"; 
+                })               
+            }
+            
+            function log(node,str) {
+                var p = document.createElement('p');
+                var now = new Date().toLocaleString();
+                p.innerHTML = `${now}:${str}`;
+                node.appendChild(p);
+            }
+        })();
+        function clearLog(node){
+            node.innerHTML = '';
+        }
+    </script>
+</body>
+
+</html>

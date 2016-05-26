@@ -92,13 +92,14 @@
                         //     if(row[0] === '!' ) continue;
                         //     console.log(JSON.stringify(sheet[row].v));
                         // }
+                        // return;
                         var items = XLSX.utils.sheet_to_json(sheet);
                         log(updateLog,`读取数据成功，共${items.length}条`)
                         log(updateLog,'开始上传数据...')                        
                         var acount = 0;
                         var ucount = 0;
                         var fcount = 0;
-                        var add = true
+                        var isAdd = true
                         Promise.all(items.map(function(item){
                                return Promise.all([get(item.issue),Polygon(item.x1,item.y1,item.x2,item.y2,item.zoom)])
                                     .then(function(array){
@@ -114,18 +115,15 @@
                                         fcount++;
                                     }).then(function(result){
                                         if(result){
-                                            add = true
+                                            isAdd = true
                                             return add(item)
                                         }else{
-                                            add = false
+                                            isAdd = false
                                             return update(item)
                                         }
-                                    },function(error){
-                                        log(updateLog,`issue:${item.issue} <br />error:${error}`);
-                                        fcount++;
                                     }).then(function(result){
                                         if(result){
-                                            add?acount++:ucount++
+                                            isAdd?acount++:ucount++
                                         }else{
                                             fcount++;
                                         }

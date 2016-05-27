@@ -95,8 +95,10 @@
                         var items = XLSX.utils.sheet_to_json(sheet);
                         log(updateLog,`读取数据成功，共${items.length}条`)
                         log(updateLog,'开始上传数据...')                        
-                        var scount = 0;
+                        var acount = 0;
+                        var ucount = 0;
                         var fcount = 0;
+                        var add = true
                         Promise.all(items.map(function(item){
                                return Promise.all([get(item.issue),Polygon(item.x1,item.y1,item.x2,item.y2,item.zoom)])
                                     .then(function(array){
@@ -111,18 +113,28 @@
                                         log(updateLog,`issue:${item.issue} <br />error:${error}`);
                                         fcount++;
                                     }).then(function(result){
-                                        return result?add(item):update(item)
+                                        if(result){
+                                            add = true
+                                            return add(item)
+                                        }else{
+                                            add = false
+                                            return update(item)
+                                        }
                                     },function(error){
                                         log(updateLog,`issue:${item.issue} <br />error:${error}`);
                                         fcount++;
                                     }).then(function(result){
-                                        result?scount++:fcount++;
+                                        if(result){
+                                            add?acount++:ucount++
+                                        }else{
+                                            fcount++;
+                                        }
                                     }).catch(function(error){
                                         log(updateLog,`issue:${item.issue} <br />error:${error}`);
                                         fcount++;
                                     })
                        })).then(function(){
-                           log(updateLog,`上传结束,成功:${scount},失败:${fcount}`);
+                           log(updateLog,`上传结束,成功更新:${ucount},成功新增:${acount},失败:${fcount}`);
                            e.target.disabled = false;
                            e.target.innerHTML = "执行"
                        })

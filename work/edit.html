@@ -260,7 +260,7 @@
                 if(isNullOrEmpty(x) || isNullOrEmpty(x) || isNullOrEmpty(zoom)){
                     return Promise.reject('参数不能为空!');
                 }
-                return fetch(`http://121.41.92.56:8001/PixelLngLat?pixelX=${x}&pixelY=${y}&zoom=${zoom}`)
+                return fetch(`http://121.41.92.56:99/pixel?x=${x}&y=${y}&zoom=${zoom}`)
                 .then(function(response){
                     return response.ok? response.json()
                                       : Promise.reject(response.statusText)
